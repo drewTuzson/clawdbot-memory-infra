@@ -170,7 +170,7 @@ The agents now maintain multi-day context across session boundaries. An agent ca
 
 The full implementation is open source:
 
-[GitHub: clawdbot-memory-infra](https://github.com/YOUR_USERNAME/clawdbot-memory-infra)
+[GitHub: clawdbot-memory-infra](https://github.com/drewTuzson/clawdbot-memory-infra)
 
 The repository includes:
 
