@@ -11,6 +11,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 
 /**
  * Inline: extract agent ID from a session key like "agent:desmond:slack:dm:..."
@@ -88,10 +89,8 @@ async function getSessionContent(sessionFilePath, maxLines = 50) {
  */
 async function generateStructuredSummary({ sessionContent, cfg }) {
   try {
-    const clawdbotRoot = path.resolve(
-      path.dirname(import.meta.url.replace("file://", "")),
-      "../.."
-    );
+    const __filename = fileURLToPath(import.meta.url);
+    const clawdbotRoot = path.resolve(path.dirname(__filename), "../..");
     const slugGenPath = path.join(clawdbotRoot, "llm-slug-generator.js");
     const { generateSlugViaLLM } = await import(slugGenPath);
 

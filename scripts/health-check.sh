@@ -42,7 +42,6 @@ ALERT_CHANNEL="${CLAWDBOT_ALERT_CHANNEL:-}"
 ALERT_STATE_DIR="${CLAWDBOT_HOME:-$HOME/.clawdbot}/health"
 ALERT_COOLDOWN_MINUTES="${CLAWDBOT_ALERT_COOLDOWN:-30}"
 DISK_THRESHOLD_PERCENT="${CLAWDBOT_DISK_THRESHOLD:-90}"
-MEMORY_THRESHOLD_PERCENT="${CLAWDBOT_MEMORY_THRESHOLD:-85}"
 DEFAULT_WORKSPACE="${CLAWDBOT_DEFAULT_WORKSPACE:-$HOME/clawd}"
 
 # --- Setup ---
@@ -132,13 +131,18 @@ check_disk() {
 
 # --- Check 4: Session transcript size ---
 check_transcripts() {
-    local sessions_dir="${CLAWDBOT_HOME:-$HOME/.clawdbot}/sessions"
-    if [[ -d "$sessions_dir" ]]; then
-        local total_size
-        total_size=$(du -sm "$sessions_dir" 2>/dev/null | awk '{print $1}')
+    local agents_dir="${CLAWDBOT_HOME:-$HOME/.clawdbot}/agents"
+    if [[ -d "$agents_dir" ]]; then
+        local total_size=0
+        for sessions_dir in "$agents_dir"/*/sessions; do
+            [[ -d "$sessions_dir" ]] || continue
+            local dir_size
+            dir_size=$(du -sm "$sessions_dir" 2>/dev/null | awk '{print $1}')
+            total_size=$(( total_size + dir_size ))
+        done
 
         if [[ "$total_size" -ge 500 ]]; then
-            ISSUES+=("🟡 SESSION TRANSCRIPTS LARGE — ${total_size}MB in ${sessions_dir}")
+            ISSUES+=("🟡 SESSION TRANSCRIPTS LARGE — ${total_size}MB across ${agents_dir}/*/sessions/")
         else
             clear_alert "transcript_size"
         fi
@@ -218,6 +222,18 @@ ALERT_KEY="health_alert"
 if should_alert "$ALERT_KEY"; then
     # Send Slack alert only if channel is configured
     if [[ -n "$ALERT_CHANNEL" && -n "$SLACK_TOKEN" ]]; then
+        # Build JSON payload safely — escape special chars for JSON string
+        _alert_text=$(printf '%s' "$ALERT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))" 2>/dev/null)
+        # Fallback: basic escape if python3 unavailable
+        if [[ -z "$_alert_text" ]]; then
+            _alert_text="\"$(printf '%s' "$ALERT" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | tr '\n' ' ')\""
+        fi
+
+        _json_payload=$(mktemp)
+        _TMPFILES+=("$_json_payload")
+        chmod 600 "$_json_payload"
+        printf '{"channel":"%s","text":%s,"unfurl_links":false}\n' "$ALERT_CHANNEL" "$_alert_text" > "$_json_payload"
+
         # Write auth header to temp file to avoid token in process table
         _curl_cfg=$(mktemp)
         _TMPFILES+=("$_curl_cfg")
@@ -226,12 +242,8 @@ if should_alert "$ALERT_KEY"; then
         curl -s -X POST "https://slack.com/api/chat.postMessage" \
             -K "$_curl_cfg" \
             -H "Content-Type: application/json" \
-            -d "{
-                \"channel\": \"${ALERT_CHANNEL}\",
-                \"text\": \"$(echo -e "$ALERT" | sed 's/"/\\"/g')\",
-                \"unfurl_links\": false
-            }" > /dev/null 2>&1
-        rm -f "$_curl_cfg"
+            -d @"$_json_payload" > /dev/null 2>&1
+        rm -f "$_curl_cfg" "$_json_payload"
     fi
 
     mark_alerted "$ALERT_KEY"

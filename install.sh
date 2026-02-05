@@ -102,8 +102,9 @@ fi
 
 # Check node
 if command -v node &>/dev/null; then
+  NODE_PATH=$(command -v node)
   NODE_VERSION=$(node --version 2>/dev/null || echo "unknown")
-  success "Node.js: $(command -v node) ($NODE_VERSION)"
+  success "Node.js: $NODE_PATH ($NODE_VERSION)"
 else
   error "node not found in PATH"
   error "Node.js is required for memory-checkpoint.js and session-rotation-monitor.js"
@@ -294,8 +295,8 @@ else
     label="${plist_name%.plist}"
     target_plist="$LAUNCH_AGENTS_DIR/$plist_name"
 
-    # Generate plist by replacing __HOME__ placeholder
-    generated_content=$(sed "s|__HOME__|$HOME|g" "$template")
+    # Generate plist by replacing __HOME__ and __NODE__ placeholders
+    generated_content=$(sed -e "s|__HOME__|$HOME|g" -e "s|__NODE__|${NODE_PATH:-/usr/local/bin/node}|g" "$template")
 
     if [ -f "$target_plist" ]; then
       # Check if content would be identical
@@ -316,7 +317,7 @@ else
 
     if $DRY_RUN; then
       dry "Would generate: $target_plist (from $template_name)"
-      dry "Would replace __HOME__ with $HOME"
+      dry "Would replace __HOME__ with $HOME, __NODE__ with ${NODE_PATH:-/usr/local/bin/node}"
 
       # Check if currently loaded
       if launchctl list 2>/dev/null | grep -q "$label"; then

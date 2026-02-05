@@ -54,7 +54,7 @@ This project implements a layered defense strategy. No single mechanism is suffi
 | `scripts/regenerate-all-indexes.sh` | Runs `generate-memory-index.sh` for every agent workspace exceeding the memory size threshold | Every 6 hours |
 | `scripts/health-check.sh` | Monitors gateway health, disk space, transcript sizes, memory file sizes, and cron job status; alerts via Slack | Every 5 min |
 | `scripts/validate-config.sh` | Pre-flight config validation: catches type errors, orphaned bindings, and ordering bugs before they crash the gateway | Before config changes |
-| `scripts/cleanup-sessions.sh` | Compresses old session transcripts and deletes sessions past retention threshold | On demand / cron |
+| `scripts/cleanup-sessions.sh` | Compresses old session transcripts, deletes sessions past retention threshold, and rotates log files | On demand / cron |
 | `scripts/backup-config.sh` | Creates timestamped `clawdbot.json` snapshots; retains the most recent N backups | Before config changes |
 
 ### Hooks
@@ -127,6 +127,8 @@ All configuration is via environment variables. Defaults are sensible for most d
 | `CLAWDBOT_COMPRESS_DAYS` | *(none)* | Days after which old session files are compressed. Used by session cleanup scripts. |
 | `CLAWDBOT_DELETE_DAYS` | *(none)* | Days after which compressed session files are deleted. Used by session cleanup scripts. |
 | `CLAWDBOT_MAX_BACKUPS` | *(none)* | Maximum number of config backup files to retain. |
+| `CLAWDBOT_LOG_MAX_BYTES` | `5242880` | Maximum log file size (bytes) before rotation. Used by cleanup-sessions.sh. |
+| `CLAWDBOT_LOG_KEEP` | `3` | Number of rotated log copies to retain. |
 
 ## Requirements
 
@@ -141,6 +143,7 @@ Credentials, session transcripts, and memory files are sensitive. This project i
 
 - **Safe credential loading** -- `.env` files are parsed as key=value text, not `source`d. Ownership and permission checks are enforced before reading.
 - **No token exposure in process table** -- API tokens are passed to `curl` via temporary config files (`-K`), not command-line arguments.
+- **Safe JSON construction** -- Slack API payloads are built using `python3 json.dumps` for proper escaping, with a sed-based fallback.
 - **No command injection** -- Python inline scripts receive file paths as `sys.argv[1]`, not interpolated into source code.
 - **Restrictive file permissions** -- Scripts `700`, hooks `600`, output files `600`, directories `700`.
 - **Repository safety** -- `.gitignore` prevents accidental commits of `.env`, `clawdbot.json`, memory files, session transcripts, and logs.

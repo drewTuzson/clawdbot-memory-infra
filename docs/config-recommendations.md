@@ -123,6 +123,8 @@ The scripts in this project use environment variables for configuration. These a
 | `SESSION_STALE_HOURS` | `4` | Should match `contextPruning.ttl` for consistency. |
 | `MEMORY_SIZE_THRESHOLD` | `50` | In KB. Agents with less memory than this get full memory loading instead of progressive disclosure. Adjust based on your agents' memory sizes. |
 | `CLAWDBOT_ALERT_COOLDOWN` | `30` | In minutes. Lower values mean more alerts; higher values mean slower notification of new issues. 30 minutes is a reasonable balance. |
+| `CLAWDBOT_LOG_MAX_BYTES` | `5242880` | Log files exceeding this size are rotated by cleanup-sessions.sh. Default 5MB is suitable for most deployments. |
+| `CLAWDBOT_LOG_KEEP` | `3` | Number of rotated log copies to retain. Older copies are deleted. |
 
 ## Related
 

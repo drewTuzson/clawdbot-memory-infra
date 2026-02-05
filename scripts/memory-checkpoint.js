@@ -121,12 +121,35 @@ async function findActiveSession(agentId) {
 }
 
 /**
- * Read the last N lines from a file efficiently (reads from end).
+ * Read the last N lines from a file efficiently.
+ * For files under 1MB, reads the whole file (fast enough).
+ * For larger files, reads a tail chunk from the end to avoid loading
+ * multi-megabyte JSONL transcripts into memory.
  */
 async function readLastLines(filePath, maxLines) {
-  const content = await fs.readFile(filePath, "utf-8");
-  const lines = content.trim().split("\n");
-  return lines.slice(-maxLines);
+  const TAIL_CHUNK_SIZE = 512 * 1024; // 512KB — enough for ~60 JSONL lines
+  const stat = await fs.stat(filePath);
+
+  if (stat.size <= TAIL_CHUNK_SIZE) {
+    // Small file: read all of it
+    const content = await fs.readFile(filePath, "utf-8");
+    const lines = content.trim().split("\n");
+    return lines.slice(-maxLines);
+  }
+
+  // Large file: read only the tail chunk
+  const fh = await fs.open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(TAIL_CHUNK_SIZE);
+    const { bytesRead } = await fh.read(buffer, 0, TAIL_CHUNK_SIZE, stat.size - TAIL_CHUNK_SIZE);
+    const chunk = buffer.subarray(0, bytesRead).toString("utf-8");
+    const lines = chunk.split("\n");
+    // Drop the first line (likely partial)
+    lines.shift();
+    return lines.filter((l) => l.trim()).slice(-maxLines);
+  } finally {
+    await fh.close();
+  }
 }
 
 /**
@@ -360,9 +383,24 @@ async function checkpointAgent(cfg, agentId) {
       existing = `# ${agentId} — ${dateStr}\n\n`;
     }
 
-    // Don't append if we already have a checkpoint within the last 15 minutes
-    const recentCheckpoint = existing.includes(`Checkpoint ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }).slice(0, 4)}`);
-    if (!recentCheckpoint) {
+    // Don't append if we already have a checkpoint within the last 15 minutes.
+    // Extract the most recent checkpoint timestamp from the file and compare
+    // using epoch seconds instead of fragile locale-dependent string matching.
+    const DEDUP_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+    let shouldAppend = true;
+    const lastCheckpointMatch = existing.match(/### Checkpoint (\d{2}:\d{2})/g);
+    if (lastCheckpointMatch && lastCheckpointMatch.length > 0) {
+      const lastTimeStr = lastCheckpointMatch[lastCheckpointMatch.length - 1]
+        .replace("### Checkpoint ", "");
+      const [hh, mm] = lastTimeStr.split(":").map(Number);
+      const lastCheckpointDate = new Date(now);
+      lastCheckpointDate.setHours(hh, mm, 0, 0);
+      if (now.getTime() - lastCheckpointDate.getTime() < DEDUP_WINDOW_MS) {
+        shouldAppend = false;
+      }
+    }
+
+    if (shouldAppend) {
       await fs.writeFile(dailyFile, existing + dailyEntry, "utf-8");
       await fs.chmod(dailyFile, 0o600);
       verbose(`${agentId}: appended to ${dateStr}.md`);

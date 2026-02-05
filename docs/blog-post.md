@@ -116,7 +116,7 @@ const candidates = sessions.filter((s) => {
 
 The script calls `sessions.reset` through the gateway WebSocket API to trigger the rotation. It skips cron and sub-agent sessions, which are ephemeral by design.
 
-**Layer 2: Programmatic Memory Checkpointing.** Every 20 minutes, a separate script reads each agent's active session JSONL file directly from disk, extracts the last 60 messages, and writes a structured `ACTIVE_CONTEXT.md` checkpoint plus an entry in a daily log. This is purely programmatic -- it parses JSON, extracts text content, and writes Markdown. No LLM call, no instruction compliance, no prompt.
+**Layer 2: Programmatic Memory Checkpointing.** Every 20 minutes, a separate script reads each agent's active session JSONL file directly from disk, extracts the last 60 messages, and writes a structured `ACTIVE_CONTEXT.md` checkpoint plus an entry in a daily log. For large transcript files (over 512KB), only the tail chunk is read from disk, avoiding the need to load multi-megabyte files into memory. This is purely programmatic -- it parses JSON, extracts text content, and writes Markdown. No LLM call, no instruction compliance, no prompt.
 
 ```javascript
 // Extract text content, skip thinking blocks and tool calls
@@ -160,9 +160,13 @@ Infrastructure that handles credentials and conversation transcripts needs to be
 
 **Token exposure.** Passing tokens via `curl -H "Authorization: Bearer $TOKEN"` exposes them in the process table (`ps aux`). We write tokens to temporary files with `chmod 600` and pass them via `curl -K`, then clean up via an `EXIT` trap.
 
+**Safe JSON construction.** Slack API alert payloads are built using `python3 json.dumps` for correct escaping of special characters, backslashes, and quotes. A sed-based fallback handles environments without Python. The payload is written to a temp file and passed via `curl -d @file` rather than interpolated into the command line.
+
 **Command injection.** Several scripts use inline Python to parse `clawdbot.json`. The original pattern interpolated the file path into Python source code: `json.load(open('$CONFIG'))`. A crafted path could inject arbitrary Python. We switched to `sys.argv[1]` with the path passed as a command-line argument.
 
 **File permissions.** All scripts install as `700`, hooks as `600`, output files (checkpoints, summaries, backups) as `600`. Directories are created with `700`. The `.gitignore` prevents accidental commits of `.env`, config files, session transcripts, and memory content.
+
+**Log rotation.** The cleanup script rotates all launchd output logs and health monitoring logs once they exceed 5MB (configurable), retaining 3 rotated copies. This prevents unbounded log growth on long-running deployments.
 
 ## Results
 
@@ -196,6 +200,6 @@ The repository includes:
 - **`scripts/validate-config.sh`** -- Pre-flight config validation
 - **`launchd/`** -- macOS `launchd` plist templates for scheduled execution
 
-To install, clone the repo, copy the hooks to `~/.clawdbot/hooks/`, copy the scripts to `~/.clawdbot/scripts/`, and load the launchd plists. Each component works independently -- you can adopt the pieces that match your setup.
+To install, clone the repo and run `./install.sh`. The installer detects your Node.js installation path and substitutes it into the launchd plist templates, so it works regardless of whether Node is installed via Homebrew, nvm, asdf, or the official installer. Each component works independently -- you can adopt the pieces that match your setup using `--no-hooks` or `--no-launchd` flags.
 
 Licensed under MIT.

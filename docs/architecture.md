@@ -45,7 +45,7 @@ When a session is rotated, the agent receives a fresh context window on its next
 The checkpoint script iterates over all configured agents and, for each one:
 
 1. Finds the most recently modified `.jsonl` session file in `~/.clawdbot/agents/{agentId}/sessions/`.
-2. Reads the last 60 lines from the file.
+2. Reads the last 60 lines from the file. For files over 512KB, only the tail chunk is read to avoid loading multi-megabyte transcripts into memory.
 3. Extracts text content from user and assistant messages, skipping thinking blocks, tool calls, heartbeats, and slash commands.
 4. Writes a structured `ACTIVE_CONTEXT.md` to the agent's workspace `memory/` directory, containing recent requests, recent work output, and referenced file paths.
 5. Appends a timestamped entry to the daily log (`memory/YYYY-MM-DD.md`).
@@ -132,11 +132,15 @@ Progressive disclosure only activates for agents whose total memory pool exceeds
 - Gateway reachability (HTTP health endpoint)
 - Gateway process existence (pgrep)
 - Disk space usage
-- Session transcript total size
+- Session transcript total size (scans all `agents/*/sessions/` directories)
 - Individual memory file sizes (flags files over 50KB)
 - Recent cron job error rates
 
-Alerts are sent via Slack with a configurable cooldown to prevent alert fatigue. The health check does not depend on the Clawdbot gateway for alerting (it calls the Slack API directly), avoiding a circular dependency.
+Alerts are sent via Slack with a configurable cooldown to prevent alert fatigue. Slack API payloads are constructed using `python3 json.dumps` for proper JSON escaping (with a sed-based fallback). The health check does not depend on the Clawdbot gateway for alerting (it calls the Slack API directly), avoiding a circular dependency.
+
+### Log Rotation
+
+`scripts/cleanup-sessions.sh` includes log rotation for all launchd output logs and health monitoring logs. Files exceeding a configurable threshold (default: 5MB) are rotated with numbered suffixes (`.1`, `.2`, `.3`), preventing unbounded log growth on long-running deployments.
 
 ## Data Flow
 

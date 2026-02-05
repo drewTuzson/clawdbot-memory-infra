@@ -7,7 +7,7 @@ set -euo pipefail
 # Usage: cleanup-sessions.sh [--dry-run]
 
 DRY_RUN=false
-if [ "$1" = "--dry-run" ]; then
+if [ "${1:-}" = "--dry-run" ]; then
   DRY_RUN=true
   echo "🔍 DRY RUN — no files will be modified"
 fi
@@ -75,7 +75,55 @@ for agent_dir in "$AGENTS_DIR"/*/sessions; do
 done
 
 echo "---"
-echo "📊 Summary: $TOTAL_COMPRESSED compressed, $TOTAL_DELETED deleted"
+echo "📊 Sessions: $TOTAL_COMPRESSED compressed, $TOTAL_DELETED deleted"
 if [ "$DRY_RUN" = false ] && [ $TOTAL_FREED -gt 0 ]; then
   echo "💾 Space freed: $(echo "$TOTAL_FREED" | awk '{printf "%.1fMB", $1/1048576}')"
 fi
+
+# --- Log rotation ---
+# Rotate launchd stdout/stderr logs and health logs to prevent unbounded growth
+CLAWDBOT_HOME_DIR="${CLAWDBOT_HOME:-$HOME/.clawdbot}"
+LOG_MAX_SIZE="${CLAWDBOT_LOG_MAX_BYTES:-5242880}" # 5MB default
+LOG_KEEP="${CLAWDBOT_LOG_KEEP:-3}" # Keep 3 rotated copies
+LOGS_ROTATED=0
+
+rotate_log() {
+  local logfile="$1"
+  [ -f "$logfile" ] || return
+  local logsize
+  logsize=$(stat -f%z "$logfile" 2>/dev/null || stat -c%s "$logfile" 2>/dev/null || echo "0")
+  if [ "$logsize" -ge "$LOG_MAX_SIZE" ]; then
+    if [ "$DRY_RUN" = true ]; then
+      echo "   Would rotate: $logfile ($(echo "$logsize" | awk '{printf "%.1fMB", $1/1048576}'))"
+    else
+      # Shift existing rotated logs
+      local i="$LOG_KEEP"
+      while [ "$i" -gt 1 ]; do
+        local prev=$((i - 1))
+        [ -f "${logfile}.${prev}" ] && mv -f "${logfile}.${prev}" "${logfile}.${i}"
+        i=$((i - 1))
+      done
+      mv -f "$logfile" "${logfile}.1"
+      touch "$logfile"
+      chmod 600 "$logfile"
+      echo "   Rotated: $(basename "$logfile")"
+    fi
+    LOGS_ROTATED=$((LOGS_ROTATED + 1))
+  fi
+}
+
+echo ""
+echo "🔄 Log Rotation"
+echo "---"
+
+# Rotate launchd logs
+for logfile in "$CLAWDBOT_HOME_DIR"/logs/*.log "$CLAWDBOT_HOME_DIR"/logs/*.err.log; do
+  rotate_log "$logfile"
+done
+
+# Rotate health logs
+for logfile in "$CLAWDBOT_HOME_DIR"/health/cron.log "$CLAWDBOT_HOME_DIR"/health/cron-error.log "$CLAWDBOT_HOME_DIR"/health/alert_log.txt; do
+  rotate_log "$logfile"
+done
+
+echo "📊 Logs: $LOGS_ROTATED rotated (max ${LOG_MAX_SIZE} bytes, keep ${LOG_KEEP} copies)"

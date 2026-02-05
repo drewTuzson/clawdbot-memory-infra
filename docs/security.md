@@ -63,6 +63,23 @@ rm -f "$_gw_cfg"
 
 Temp files are cleaned up via an `EXIT` trap that removes all files in the `_TMPFILES` array, even if the script exits abnormally.
 
+### Slack API JSON Construction
+
+`health-check.sh` sends alert payloads to the Slack API. Instead of constructing JSON via string interpolation (which is fragile with special characters, backslashes, and quotes), payloads are built safely:
+
+```bash
+# Primary: use python3 json.dumps for correct escaping
+_alert_text=$(printf '%s' "$ALERT" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
+
+# Fallback: basic sed escaping if python3 unavailable
+_alert_text="\"$(printf '%s' "$ALERT" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | tr '\n' ' ')\""
+
+# Payload written to temp file, passed to curl via -d @file
+printf '{"channel":"%s","text":%s,"unfurl_links":false}\n' "$ALERT_CHANNEL" "$_alert_text" > "$_json_payload"
+```
+
+This prevents JSON syntax errors from causing silent alert delivery failures.
+
 ### Python Inline Scripts
 
 `validate-config.sh` and `regenerate-all-indexes.sh` use inline Python to parse `clawdbot.json`. Config file paths are passed as `sys.argv[1]` rather than interpolated into the Python source:
@@ -103,6 +120,7 @@ Scripts that write files set restrictive permissions on creation:
 | `session-summary/handler.js` | Session summaries | `0o600` |
 | `session-summary/handler.js` | Memory directories | `0o700` |
 | `backup-config.sh` | Config backups | `600` |
+| `cleanup-sessions.sh` | Rotated log files | `600` |
 | `install.sh` | Log directories | `700` |
 | `install.sh` | Health directories | `700` |
 

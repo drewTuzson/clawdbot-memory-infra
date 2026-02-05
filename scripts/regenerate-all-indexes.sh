@@ -45,7 +45,8 @@ for a in cfg.get('agents',{}).get('list',[]):
 TOTAL=0
 GENERATED=0
 
-for ws in $WORKSPACES; do
+while IFS= read -r ws; do
+  [ -z "$ws" ] && continue
   TOTAL=$((TOTAL + 1))
   MEMDIR="$ws/memory"
   if [ ! -d "$MEMDIR" ]; then
@@ -61,6 +62,6 @@ for ws in $WORKSPACES; do
   echo "$LOG_PREFIX Regenerating INDEX for $ws (${MEMSIZE}KB)"
   bash "$INDEX_SCRIPT" "$ws" 2>&1
   GENERATED=$((GENERATED + 1))
-done
+done <<< "$WORKSPACES"
 
 echo "$LOG_PREFIX Done. Generated $GENERATED/$TOTAL indexes."
