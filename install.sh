@@ -181,11 +181,11 @@ for src_script in "$SCRIPT_DIR"/scripts/*; do
 
   if $DRY_RUN; then
     dry "Would copy: $src_script -> $target"
-    dry "Would chmod +x: $target"
+    dry "Would chmod 700: $target"
     SCRIPTS_INSTALLED=$((SCRIPTS_INSTALLED + 1))
   else
     cp "$src_script" "$target"
-    chmod +x "$target"
+    chmod 700 "$target"
     success "Installed: $basename_script"
     SCRIPTS_INSTALLED=$((SCRIPTS_INSTALLED + 1))
   fi
@@ -244,6 +244,7 @@ else
         hook_installed=true
       else
         cp "$hook_file" "$target_file"
+        chmod 600 "$target_file"
         success "Installed: $hook_name/$basename_file"
         hook_installed=true
       fi
@@ -280,8 +281,8 @@ else
     dry "Would create directories: $LAUNCH_AGENTS_DIR, $LOGS_DIR, $HEALTH_DIR"
   else
     mkdir -p "$LAUNCH_AGENTS_DIR"
-    mkdir -p "$LOGS_DIR"
-    mkdir -p "$HEALTH_DIR"
+    mkdir -p -m 700 "$LOGS_DIR"
+    mkdir -p -m 700 "$HEALTH_DIR"
   fi
 
   for template in "$SCRIPT_DIR"/launchd/*.plist.template; do
@@ -333,6 +334,7 @@ else
 
       # Write the generated plist
       echo "$generated_content" > "$target_plist"
+      chmod 600 "$target_plist"
 
       # Load the new plist
       if launchctl bootstrap "gui/$(id -u)" "$target_plist" 2>/dev/null || \

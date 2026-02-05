@@ -53,6 +53,9 @@ This project implements a layered defense strategy. No single mechanism is suffi
 | `scripts/generate-memory-index.sh` | Scans `memory/*.md` files, categorizes them, computes sizes and observation counts, produces a compact `INDEX.md` | On demand |
 | `scripts/regenerate-all-indexes.sh` | Runs `generate-memory-index.sh` for every agent workspace exceeding the memory size threshold | Every 6 hours |
 | `scripts/health-check.sh` | Monitors gateway health, disk space, transcript sizes, memory file sizes, and cron job status; alerts via Slack | Every 5 min |
+| `scripts/validate-config.sh` | Pre-flight config validation: catches type errors, orphaned bindings, and ordering bugs before they crash the gateway | Before config changes |
+| `scripts/cleanup-sessions.sh` | Compresses old session transcripts and deletes sessions past retention threshold | On demand / cron |
+| `scripts/backup-config.sh` | Creates timestamped `clawdbot.json` snapshots; retains the most recent N backups | Before config changes |
 
 ### Hooks
 
@@ -74,24 +77,18 @@ This project implements a layered defense strategy. No single mechanism is suffi
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/clawdbot-memory-infra.git
+git clone https://github.com/drewTuzson/clawdbot-memory-infra.git
 cd clawdbot-memory-infra
 
-# Install hooks into Clawdbot
-cp -r hooks/memory-index-inject ~/.clawdbot/hooks/
-cp -r hooks/session-summary ~/.clawdbot/hooks/
+# Preview what will be installed
+./install.sh --dry-run
 
-# Install scripts
-cp scripts/*.js ~/.clawdbot/scripts/
-cp scripts/*.sh ~/.clawdbot/scripts/
-chmod +x ~/.clawdbot/scripts/*.sh
+# Install everything (scripts, hooks, launchd agents)
+./install.sh
 
-# Install launchd plists (replace __HOME__ with your home directory)
-for template in launchd/*.plist.template; do
-  plist=$(basename "$template" .template)
-  sed "s|__HOME__|$HOME|g" "$template" > ~/Library/LaunchAgents/"$plist"
-  launchctl load ~/Library/LaunchAgents/"$plist"
-done
+# Or install selectively
+./install.sh --no-launchd    # Skip launchd (use cron or systemd instead)
+./install.sh --no-hooks      # Skip hook installation
 
 # Generate initial INDEX.md for your workspace
 bash ~/.clawdbot/scripts/generate-memory-index.sh ~/your-workspace
@@ -102,6 +99,13 @@ bash ~/.clawdbot/scripts/generate-memory-index.sh ~/your-workspace
 
 # Restart the gateway for hook changes to take effect
 launchctl stop com.clawdbot.gateway && launchctl start com.clawdbot.gateway
+```
+
+To uninstall:
+
+```bash
+./uninstall.sh           # Remove all installed components
+./uninstall.sh --dry-run # Preview what would be removed
 ```
 
 ## Configuration
@@ -131,11 +135,24 @@ All configuration is via environment variables. Defaults are sensible for most d
 - **Python 3** -- Used by `regenerate-all-indexes.sh` to parse `clawdbot.json` for workspace discovery.
 - **Clawdbot** -- The gateway must be installed and running. Scripts communicate via the gateway WebSocket API (`ws://127.0.0.1:18789`).
 
+## Security
+
+Credentials, session transcripts, and memory files are sensitive. This project implements several hardening measures:
+
+- **Safe credential loading** -- `.env` files are parsed as key=value text, not `source`d. Ownership and permission checks are enforced before reading.
+- **No token exposure in process table** -- API tokens are passed to `curl` via temporary config files (`-K`), not command-line arguments.
+- **No command injection** -- Python inline scripts receive file paths as `sys.argv[1]`, not interpolated into source code.
+- **Restrictive file permissions** -- Scripts `700`, hooks `600`, output files `600`, directories `700`.
+- **Repository safety** -- `.gitignore` prevents accidental commits of `.env`, `clawdbot.json`, memory files, session transcripts, and logs.
+
+See [docs/security.md](docs/security.md) for the full threat model and deployment recommendations.
+
 ## Documentation
 
 - [Architecture: Defense in Depth](docs/architecture.md) -- Detailed explanation of each layer and how they interact
 - [Compaction Bug](docs/compaction-bug.md) -- Root cause analysis of the `safeguard` mode empty summary bug
 - [Recommended Configuration](docs/config-recommendations.md) -- Tuning guide for Clawdbot settings that affect memory persistence
+- [Security](docs/security.md) -- Threat model, credential handling, file permissions, and deployment recommendations
 
 ## License
 

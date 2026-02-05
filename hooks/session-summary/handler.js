@@ -167,6 +167,7 @@ const sessionSummaryHandler = async (event) => {
 
     const memoryDir = path.join(workspaceDir, "memory");
     await fs.mkdir(memoryDir, { recursive: true });
+    await fs.chmod(memoryDir, 0o700);
 
     // Get session content
     const sessionEntry = (context.previousSessionEntry ||
@@ -221,6 +222,7 @@ const sessionSummaryHandler = async (event) => {
         existing + "\n\n" + structured,
         "utf-8"
       );
+      await fs.chmod(memoryFilePath, 0o600);
     } catch {
       // File doesn't exist, create full structured summary
       const timeStr = now.toISOString().split("T")[1].split(".")[0];
@@ -235,6 +237,7 @@ const sessionSummaryHandler = async (event) => {
 
       const structured = buildStructuredTemplate(sessionContent);
       await fs.writeFile(memoryFilePath, header + structured, "utf-8");
+      await fs.chmod(memoryFilePath, 0o600);
     }
 
     console.log(`[session-summary] Structured summary written: ${filename}`);

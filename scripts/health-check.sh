@@ -5,11 +5,33 @@
 
 set -euo pipefail
 
-# --- Load secrets from .env ---
-if [[ -f "${CLAWDBOT_HOME:-$HOME/.clawdbot}/.env" ]]; then
-    set -a
-    source "${CLAWDBOT_HOME:-$HOME/.clawdbot}/.env"
-    set +a
+# --- Temp file cleanup ---
+_TMPFILES=()
+cleanup_tmp() { rm -f "${_TMPFILES[@]}" 2>/dev/null; }
+trap cleanup_tmp EXIT
+
+# --- Load secrets from .env (safe parse, no source) ---
+_env_file="${CLAWDBOT_HOME:-$HOME/.clawdbot}/.env"
+if [[ -f "$_env_file" ]]; then
+    # Verify .env is owned by current user and not world-readable
+    _env_owner=$(stat -f %u "$_env_file" 2>/dev/null || stat -c %u "$_env_file" 2>/dev/null)
+    _env_perms=$(stat -f %Lp "$_env_file" 2>/dev/null || stat -c %a "$_env_file" 2>/dev/null)
+    if [[ "$_env_owner" != "$(id -u)" ]]; then
+        echo "WARNING: .env file not owned by current user, skipping" >&2
+    elif [[ "${_env_perms: -1}" != "0" ]]; then
+        echo "WARNING: .env file is world-readable (mode ${_env_perms}), skipping. Run: chmod 600 $_env_file" >&2
+    else
+        # Safe parse: only read KEY=VALUE lines, skip comments and commands
+        while IFS='=' read -r key value; do
+            [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+            key=$(echo "$key" | tr -d '[:space:]')
+            value="${value%\"}"
+            value="${value#\"}"
+            value="${value%\'}"
+            value="${value#\'}"
+            export "$key=$value"
+        done < "$_env_file"
+    fi
 fi
 
 # --- Configuration ---
@@ -65,10 +87,17 @@ clear_alert() {
 # --- Check 1: Gateway reachable ---
 check_gateway() {
     local http_code
+    # Write auth header to temp file to avoid token exposure in process table
+    local _gw_cfg
+    _gw_cfg=$(mktemp)
+    _TMPFILES+=("$_gw_cfg")
+    chmod 600 "$_gw_cfg"
+    printf 'header = "Authorization: Bearer %s"\n' "$GATEWAY_TOKEN" > "$_gw_cfg"
     http_code=$(curl -s -o /dev/null -w "%{http_code}" \
         --connect-timeout 5 --max-time 10 \
-        -H "Authorization: Bearer ${GATEWAY_TOKEN}" \
+        -K "$_gw_cfg" \
         "${GATEWAY_URL}/api/health" 2>/dev/null || echo "000")
+    rm -f "$_gw_cfg"
 
     if [[ "$http_code" == "000" ]]; then
         ISSUES+=("🔴 GATEWAY DOWN — Cannot reach ${GATEWAY_URL} (connection refused/timeout)")
@@ -189,14 +218,20 @@ ALERT_KEY="health_alert"
 if should_alert "$ALERT_KEY"; then
     # Send Slack alert only if channel is configured
     if [[ -n "$ALERT_CHANNEL" && -n "$SLACK_TOKEN" ]]; then
+        # Write auth header to temp file to avoid token in process table
+        _curl_cfg=$(mktemp)
+        _TMPFILES+=("$_curl_cfg")
+        chmod 600 "$_curl_cfg"
+        printf 'header = "Authorization: Bearer %s"\n' "$SLACK_TOKEN" > "$_curl_cfg"
         curl -s -X POST "https://slack.com/api/chat.postMessage" \
-            -H "Authorization: Bearer ${SLACK_TOKEN}" \
+            -K "$_curl_cfg" \
             -H "Content-Type: application/json" \
             -d "{
                 \"channel\": \"${ALERT_CHANNEL}\",
                 \"text\": \"$(echo -e "$ALERT" | sed 's/"/\\"/g')\",
                 \"unfurl_links\": false
             }" > /dev/null 2>&1
+        rm -f "$_curl_cfg"
     fi
 
     mark_alerted "$ALERT_KEY"

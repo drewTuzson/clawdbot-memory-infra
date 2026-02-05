@@ -320,6 +320,7 @@ async function checkpointAgent(cfg, agentId) {
   // Ensure memory directory exists
   try {
     await fs.mkdir(memoryDir, { recursive: true });
+    await fs.chmod(memoryDir, 0o700);
   } catch {
     log(`${agentId}: failed to create memory dir ${memoryDir}`);
     return false;
@@ -343,6 +344,7 @@ async function checkpointAgent(cfg, agentId) {
   // Write ACTIVE_CONTEXT.md (overwrite — it's current state)
   try {
     await fs.writeFile(activeContextFile, activeContext, "utf-8");
+    await fs.chmod(activeContextFile, 0o600);
     verbose(`${agentId}: wrote ACTIVE_CONTEXT.md (${activeContext.length} chars)`);
   } catch (err) {
     log(`${agentId}: failed to write ACTIVE_CONTEXT.md:`, err.message);
@@ -362,6 +364,7 @@ async function checkpointAgent(cfg, agentId) {
     const recentCheckpoint = existing.includes(`Checkpoint ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }).slice(0, 4)}`);
     if (!recentCheckpoint) {
       await fs.writeFile(dailyFile, existing + dailyEntry, "utf-8");
+      await fs.chmod(dailyFile, 0o600);
       verbose(`${agentId}: appended to ${dateStr}.md`);
     } else {
       verbose(`${agentId}: skipped daily append (recent checkpoint exists)`);

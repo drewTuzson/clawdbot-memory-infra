@@ -152,6 +152,18 @@ The index is regenerated every 6 hours by a shell script that categorizes memory
 
 Each layer is independent. The session rotation monitor doesn't know about the checkpointing script. The checkpointing script doesn't depend on compaction working. The progressive memory hook doesn't care how the session started. If any single layer is running, agents retain enough context to function.
 
+## Security Hardening
+
+Infrastructure that handles credentials and conversation transcripts needs to be hardened, especially when published as open source. We applied several measures during development that are worth calling out.
+
+**Credential loading.** The health monitoring script needs API tokens (gateway auth, Slack bot token) from a `.env` file. The common pattern -- `source .env` -- executes arbitrary shell commands embedded in the file. Instead, we parse it as plain key=value text with a `while IFS='=' read` loop. Before reading, we verify the `.env` file is owned by the current user and is not world-readable.
+
+**Token exposure.** Passing tokens via `curl -H "Authorization: Bearer $TOKEN"` exposes them in the process table (`ps aux`). We write tokens to temporary files with `chmod 600` and pass them via `curl -K`, then clean up via an `EXIT` trap.
+
+**Command injection.** Several scripts use inline Python to parse `clawdbot.json`. The original pattern interpolated the file path into Python source code: `json.load(open('$CONFIG'))`. A crafted path could inject arbitrary Python. We switched to `sys.argv[1]` with the path passed as a command-line argument.
+
+**File permissions.** All scripts install as `700`, hooks as `600`, output files (checkpoints, summaries, backups) as `600`. Directories are created with `700`. The `.gitignore` prevents accidental commits of `.env`, config files, session transcripts, and memory content.
+
 ## Results
 
 Since deploying this system, we have had zero lobotomy events across all six agents. The specific improvements:
@@ -180,6 +192,8 @@ The repository includes:
 - **`scripts/regenerate-all-indexes.sh`** -- Scheduled multi-workspace index regeneration
 - **`hooks/memory-index-inject/`** -- Progressive memory loading hook for agent bootstrap
 - **`hooks/session-summary/`** -- Structured session summary generation on rotation
+- **`scripts/health-check.sh`** -- Gateway health monitoring with Slack alerts
+- **`scripts/validate-config.sh`** -- Pre-flight config validation
 - **`launchd/`** -- macOS `launchd` plist templates for scheduled execution
 
 To install, clone the repo, copy the hooks to `~/.clawdbot/hooks/`, copy the scripts to `~/.clawdbot/scripts/`, and load the launchd plists. Each component works independently -- you can adopt the pieces that match your setup.

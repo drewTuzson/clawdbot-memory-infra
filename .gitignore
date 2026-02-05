@@ -1,0 +1,29 @@
+# Credentials and secrets
+.env
+.env.*
+
+# Clawdbot config (may contain sensitive data)
+clawdbot.json
+
+# Generated memory files (may contain PII/conversation data)
+memory/
+
+# Log files
+*.log
+*.err.log
+
+# Backup files
+backups/
+
+# Health state files
+health/
+
+# Session transcripts
+*.jsonl
+*.jsonl.gz
+
+# macOS
+.DS_Store
+
+# Node.js
+node_modules/

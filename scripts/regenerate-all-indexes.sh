@@ -23,8 +23,8 @@ fi
 
 # Extract workspace paths from config using python3 (available on macOS)
 WORKSPACES=$(python3 -c "
-import json, os
-cfg = json.load(open('$CONFIG'))
+import json, sys, os
+cfg = json.load(open(sys.argv[1]))
 seen = set()
 # Defaults workspace
 dw = cfg.get('agents',{}).get('defaults',{}).get('workspace','')
@@ -40,7 +40,7 @@ for a in cfg.get('agents',{}).get('list',[]):
         if w not in seen:
             seen.add(w)
             print(w)
-" 2>/dev/null)
+" "$CONFIG" 2>/dev/null)
 
 TOTAL=0
 GENERATED=0

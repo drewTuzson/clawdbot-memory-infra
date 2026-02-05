@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # Clawdbot Session Transcript Cleanup
 # - Compresses transcripts older than COMPRESS_AFTER_DAYS days
 # - Deletes compressed transcripts older than DELETE_AFTER_DAYS days
@@ -14,6 +15,17 @@ fi
 AGENTS_DIR="${CLAWDBOT_HOME:-$HOME/.clawdbot}/agents"
 COMPRESS_AFTER_DAYS="${CLAWDBOT_COMPRESS_DAYS:-7}"
 DELETE_AFTER_DAYS="${CLAWDBOT_DELETE_DAYS:-30}"
+
+# Validate numeric values
+if ! [[ "$COMPRESS_AFTER_DAYS" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: CLAWDBOT_COMPRESS_DAYS must be numeric, got: $COMPRESS_AFTER_DAYS"
+  exit 1
+fi
+if ! [[ "$DELETE_AFTER_DAYS" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: CLAWDBOT_DELETE_DAYS must be numeric, got: $DELETE_AFTER_DAYS"
+  exit 1
+fi
+
 TOTAL_FREED=0
 TOTAL_COMPRESSED=0
 TOTAL_DELETED=0

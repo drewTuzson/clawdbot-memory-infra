@@ -16,7 +16,7 @@ if [ ! -f "$CONFIG" ]; then
 fi
 
 # Validate JSON syntax
-if ! python3 -c "import json; json.load(open('$CONFIG'))" 2>/dev/null; then
+if ! python3 -c "import json, sys; json.load(open(sys.argv[1]))" "$CONFIG" 2>/dev/null; then
   echo "❌ FATAL: Invalid JSON syntax"
   exit 1
 fi
@@ -25,8 +25,8 @@ echo "✅ JSON syntax valid"
 # === CRITICAL CHECK: allowFrom.slack must be array, never boolean ===
 # This is THE bug that crashed us 3 times
 BOOL_SLACK=$(python3 -c "
-import json
-config = json.load(open('$CONFIG'))
+import json, sys
+config = json.load(open(sys.argv[1]))
 agents = config.get('agents', {}).get('list', [])
 issues = []
 for agent in agents:
@@ -38,7 +38,7 @@ for agent in agents:
         issues.append(f\"Agent '{agent['id']}': allowFrom.slack is {type(slack_val).__name__} ({slack_val}), MUST be array\")
 for issue in issues:
     print(issue)
-" 2>/dev/null)
+" "$CONFIG" 2>/dev/null)
 
 if [ -n "$BOOL_SLACK" ]; then
   echo "❌ CRITICAL: $BOOL_SLACK"
@@ -49,8 +49,8 @@ fi
 
 # === Check bindings order: main catch-all must be LAST ===
 BINDING_ORDER=$(python3 -c "
-import json
-config = json.load(open('$CONFIG'))
+import json, sys
+config = json.load(open(sys.argv[1]))
 bindings = config.get('bindings', [])
 main_catchall_idx = -1
 last_specific_idx = -1
@@ -64,7 +64,7 @@ if main_catchall_idx >= 0 and last_specific_idx >= 0 and main_catchall_idx < las
     print(f'Main catch-all at index {main_catchall_idx} but specific binding at {last_specific_idx} — catch-all must be LAST')
 elif main_catchall_idx == -1:
     print('WARNING: No main catch-all binding found')
-" 2>/dev/null)
+" "$CONFIG" 2>/dev/null)
 
 if echo "$BINDING_ORDER" | grep -q "must be LAST"; then
   echo "❌ CRITICAL: $BINDING_ORDER"
@@ -78,15 +78,15 @@ fi
 
 # === Check all binding agentIds exist in agents.list ===
 ORPHAN_BINDINGS=$(python3 -c "
-import json
-config = json.load(open('$CONFIG'))
+import json, sys
+config = json.load(open(sys.argv[1]))
 agent_ids = {a['id'] for a in config.get('agents', {}).get('list', [])}
 bindings = config.get('bindings', [])
 for i, b in enumerate(bindings):
     aid = b.get('agentId', '')
     if aid not in agent_ids:
         print(f'Binding {i}: agentId \"{aid}\" not found in agents.list')
-" 2>/dev/null)
+" "$CONFIG" 2>/dev/null)
 
 if [ -n "$ORPHAN_BINDINGS" ]; then
   echo "❌ CRITICAL: Orphaned bindings found:"
@@ -98,8 +98,8 @@ fi
 
 # === Check all binding accountIds exist in slack accounts ===
 ORPHAN_ACCOUNTS=$(python3 -c "
-import json
-config = json.load(open('$CONFIG'))
+import json, sys
+config = json.load(open(sys.argv[1]))
 accounts = set(config.get('channels', {}).get('slack', {}).get('accounts', {}).keys())
 bindings = config.get('bindings', [])
 for i, b in enumerate(bindings):
@@ -107,7 +107,7 @@ for i, b in enumerate(bindings):
     acc = match.get('accountId')
     if acc and acc not in accounts:
         print(f'Binding {i}: accountId \"{acc}\" not found in slack.accounts')
-" 2>/dev/null)
+" "$CONFIG" 2>/dev/null)
 
 if [ -n "$ORPHAN_ACCOUNTS" ]; then
   echo "❌ CRITICAL: $ORPHAN_ACCOUNTS"
@@ -118,8 +118,8 @@ fi
 
 # === Check all bound channel IDs are in the channels allowlist ===
 MISSING_CHANNELS=$(python3 -c "
-import json
-config = json.load(open('$CONFIG'))
+import json, sys
+config = json.load(open(sys.argv[1]))
 allowed = set(config.get('channels', {}).get('slack', {}).get('channels', {}).keys())
 bindings = config.get('bindings', [])
 for i, b in enumerate(bindings):
@@ -129,7 +129,7 @@ for i, b in enumerate(bindings):
         cid = peer.get('id', '')
         if cid and cid not in allowed:
             print(f'Binding {i}: channel {cid} not in channels allowlist')
-" 2>/dev/null)
+" "$CONFIG" 2>/dev/null)
 
 if [ -n "$MISSING_CHANNELS" ]; then
   echo "❌ CRITICAL: $MISSING_CHANNELS"
@@ -140,8 +140,8 @@ fi
 
 # === Check for duplicate bindings ===
 DUPES=$(python3 -c "
-import json
-config = json.load(open('$CONFIG'))
+import json, sys
+config = json.load(open(sys.argv[1]))
 bindings = config.get('bindings', [])
 seen = set()
 for i, b in enumerate(bindings):
@@ -149,7 +149,7 @@ for i, b in enumerate(bindings):
     if key in seen:
         print(f'Binding {i}: duplicate match pattern')
     seen.add(key)
-" 2>/dev/null)
+" "$CONFIG" 2>/dev/null)
 
 if [ -n "$DUPES" ]; then
   echo "⚠️  Duplicate bindings: $DUPES"
@@ -160,13 +160,13 @@ fi
 
 # === Check agent IDs are lowercase ===
 CASE_ISSUES=$(python3 -c "
-import json
-config = json.load(open('$CONFIG'))
+import json, sys
+config = json.load(open(sys.argv[1]))
 for a in config.get('agents', {}).get('list', []):
     aid = a.get('id', '')
     if aid != aid.lower():
         print(f'Agent ID \"{aid}\" contains uppercase — should be \"{aid.lower()}\"')
-" 2>/dev/null)
+" "$CONFIG" 2>/dev/null)
 
 if [ -n "$CASE_ISSUES" ]; then
   echo "⚠️  $CASE_ISSUES"
@@ -177,15 +177,15 @@ fi
 
 # === Check subagents.allowAgents references ===
 MISSING_SUBAGENTS=$(python3 -c "
-import json
-config = json.load(open('$CONFIG'))
+import json, sys
+config = json.load(open(sys.argv[1]))
 agent_ids = {a['id'] for a in config.get('agents', {}).get('list', [])}
 for a in config.get('agents', {}).get('list', []):
     allowed = a.get('subagents', {}).get('allowAgents', [])
     for sub in allowed:
         if sub not in agent_ids:
             print(f'Agent \"{a[\"id\"]}\": allowAgents references \"{sub}\" which is not in agents.list')
-" 2>/dev/null)
+" "$CONFIG" 2>/dev/null)
 
 if [ -n "$MISSING_SUBAGENTS" ]; then
   echo "⚠️  $MISSING_SUBAGENTS"
