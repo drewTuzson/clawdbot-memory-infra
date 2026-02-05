@@ -1,18 +1,18 @@
-# The Lobotomy Problem: How We Fixed Memory Persistence in a 6-Agent AI Deployment
+# The Lobotomy Problem: How I Fixed Memory Persistence in a 6-Agent AI Deployment
 
-We run six AI agents on Slack through [Clawdbot](https://clawdbot.com), an open-source multi-agent gateway. Each agent has a specialized role -- an orchestrator, a financial domain lead, a library project manager, and so on. They maintain persistent memory across sessions: decisions they've made, code they've written, context about ongoing projects. The whole system depends on that memory being reliable.
+I run six AI agents on Slack through [Clawdbot](https://clawdbot.com), an open-source multi-agent gateway. I'm a solo operator -- one person using agentic AI copilots to force-multiply my daily output. The agent hierarchy is modeled on the org structures I've built and managed at agencies: an orchestrator who delegates, domain leads who own verticals, specialists who execute. That structure works for human teams, and it maps surprisingly well to a fleet of LLM agents. Each agent has a specialized role and maintains persistent memory across sessions -- decisions made, code written, context about ongoing projects. The whole system depends on that memory being reliable.
 
 For weeks, it wasn't.
 
 ## The Problem
 
-We called it "the lobotomy." An agent would be deep into a multi-hour task -- debugging a build pipeline, drafting a project plan, coordinating with another agent -- and then suddenly forget everything. Not gradually. Completely. Mid-conversation context gone, decisions from an hour ago evaporated, files it had just edited treated as if they'd never existed.
+I called it "the lobotomy." An agent would be deep into a multi-hour task -- debugging a build pipeline, drafting a project plan, coordinating with another agent -- and then suddenly forget everything. Not gradually. Completely. Mid-conversation context gone, decisions from an hour ago evaporated, files it had just edited treated as if they'd never existed.
 
-The real-world cost was not theoretical. One agent submitted a build to Apple App Store review using an outdated configuration because it had lost the context where we'd changed the signing profile. Another agent repeated three hours of API integration research it had already completed and documented. Trust in the system eroded -- we started manually babysitting agents, which defeated the purpose of having them.
+The real-world cost was not theoretical. One agent submitted a build to Apple App Store review using an outdated configuration because it had lost the context where I'd changed the signing profile. Another agent repeated three hours of API integration research it had already completed and documented. Trust in the system eroded -- I started manually babysitting agents, which defeated the entire purpose of running them as autonomous copilots.
 
-The pattern was unpredictable. Sometimes an agent would hold context for eight hours without trouble. Other times, it would lose everything twenty minutes into a session. The inconsistency made it harder to diagnose -- we couldn't reliably reproduce the failure. Restarting a session would appear to fix things (the agent would reload its memory files), but the underlying problem would surface again hours later.
+The pattern was unpredictable. Sometimes an agent would hold context for eight hours without trouble. Other times, it would lose everything twenty minutes into a session. The inconsistency made it harder to diagnose -- I couldn't reliably reproduce the failure. Restarting a session would appear to fix things (the agent would reload its memory files), but the underlying problem would surface again hours later.
 
-We eventually traced it to four independent failures that were compounding into a single catastrophic symptom.
+I eventually traced it to four independent failures that were compounding into a single catastrophic symptom.
 
 ## Root Cause Analysis
 
@@ -22,13 +22,13 @@ Clawdbot uses context compaction to manage long sessions. When a session's token
 
 The system has a `safeguard` compaction mode that creates an `ExtensionRunner` to call the LLM for summarization. The problem: `ExtensionRunner.initialize()` was never called before the summarization request. This meant `ctx.model` was always `undefined` when the compaction code tried to generate the summary. The LLM call silently failed, producing a placeholder string: "Summary unavailable."
 
-The smoking gun was timing. A real API call to summarize 100K+ tokens of conversation takes 5-30 seconds. Our compaction events were completing in 15-20 milliseconds. That's not summarization -- that's a no-op with extra steps.
+The smoking gun was timing. A real API call to summarize 100K+ tokens of conversation takes 5-30 seconds. My compaction events were completing in 15-20 milliseconds. That's not summarization -- that's a no-op with extra steps.
 
 ```
-// What we expected to see in compaction logs:
+// What I expected to see in compaction logs:
 // compaction completed in 12,400ms — summary: 6.2KB
 
-// What we actually saw:
+// What I actually saw:
 // compaction completed in 18ms — summary: "Summary unavailable"
 ```
 
@@ -40,15 +40,15 @@ Clawdbot has a `memoryFlush` prompt that instructs agents to write important con
 
 But this is a prompt instruction, and LLM compliance with instructions is probabilistic, not guaranteed. Under cognitive load -- when an agent is managing a complex multi-step task, juggling tool calls, or handling a long conversation -- it is more likely to skip the flush. The exact situations where memory persistence matters most are the situations where the flush is least reliable.
 
-We verified this by auditing memory file timestamps against session activity. Agents in long, complex sessions often went hours without writing to their memory files, even though the system prompt explicitly told them to persist state regularly.
+I verified this by auditing memory file timestamps against session activity. Agents in long, complex sessions often went hours without writing to their memory files, even though the system prompt explicitly told them to persist state regularly.
 
 ### Failure 3: Hooks Silently Failing
 
-We had built two custom hooks to address parts of this problem: a `session-summary` hook that generated structured summaries on session rotation, and a `memory-index-inject` hook that loaded a compact memory index at agent bootstrap.
+I had built two custom hooks to address parts of this problem: a `session-summary` hook that generated structured summaries on session rotation, and a `memory-index-inject` hook that loaded a compact memory index at agent bootstrap.
 
 Both hooks were written in TypeScript. Clawdbot's hook loader uses native `import()` to load handler files. On Node.js without a TypeScript compiler in the import chain, `.ts` files fail with `ERR_UNKNOWN_FILE_EXTENSION`. The hook loader's candidate resolution order is `handler.ts, handler.js, index.ts, index.js` -- it picks the first file that exists, not the first file that successfully imports.
 
-Our `.ts` files existed, so the loader selected them. They failed to import. No error was surfaced to the user or logged in an obvious place. The hooks simply never fired.
+My `.ts` files existed, so the loader selected them. They failed to import. No error was surfaced to the user or logged in an obvious place. The hooks simply never fired.
 
 ```
 // Hook loader candidate order:
@@ -58,7 +58,7 @@ Our `.ts` files existed, so the loader selected them. They failed to import. No 
 // 4. index.js
 ```
 
-We only discovered this by adding explicit logging to the gateway startup sequence and watching for hook registration messages that never appeared.
+I only discovered this by adding explicit logging to the gateway startup sequence and watching for hook registration messages that never appeared.
 
 ### Failure 4: Context Pruning Too Aggressive
 
@@ -73,7 +73,7 @@ With a longer TTL, the agent would at least retain the raw messages until compac
 
 ## The Fix: Defense in Depth
 
-We didn't trust any single fix to solve this reliably. Instead, we built four independent layers, any one of which is sufficient to prevent total memory loss. If one layer fails, the others catch it.
+I didn't trust any single fix to solve this reliably. Instead, I built four independent layers, any one of which is sufficient to prevent total memory loss. If one layer fails, the others catch it.
 
 ```
                     +---------------------------+
@@ -131,11 +131,11 @@ if (typeof msg.content === "string") {
 }
 ```
 
-When an agent starts a new session, it reads `ACTIVE_CONTEXT.md` and immediately has context about what it was doing 20 minutes ago. This layer alone would have prevented most of the lobotomy events we experienced.
+When an agent starts a new session, it reads `ACTIVE_CONTEXT.md` and immediately has context about what it was doing 20 minutes ago. This layer alone would have prevented most of the lobotomy events I experienced.
 
-**Layer 3: Fixed Compaction.** We switched from `safeguard` mode to `default` mode, which uses the session's own model for summarization instead of creating a separate `ExtensionRunner`. We also extended the context pruning TTL from 1 hour to 4 hours and raised the soft threshold from 10K to 25K tokens. Compaction summaries now take 5-15 seconds and produce 5-7KB of structured context instead of empty strings.
+**Layer 3: Fixed Compaction.** I switched from `safeguard` mode to `default` mode, which uses the session's own model for summarization instead of creating a separate `ExtensionRunner`. I also extended the context pruning TTL from 1 hour to 4 hours and raised the soft threshold from 10K to 25K tokens. Compaction summaries now take 5-15 seconds and produce 5-7KB of structured context instead of empty strings.
 
-**Layer 4: Progressive Memory Loading.** Instead of dumping an agent's entire memory directory into its context at bootstrap (847KB / ~214K tokens for our most active agent), a hook injects a compact `INDEX.md` (~1-2K tokens) with a categorized file listing. The agent uses on-demand search and retrieval to pull only the memory files relevant to its current task. This was one of the hooks that had been silently failing due to the TypeScript import issue -- once compiled to JavaScript and redeployed, it worked immediately.
+**Layer 4: Progressive Memory Loading.** Instead of dumping an agent's entire memory directory into its context at bootstrap (847KB / ~214K tokens for my most active agent), a hook injects a compact `INDEX.md` (~1-2K tokens) with a categorized file listing. The agent uses on-demand search and retrieval to pull only the memory files relevant to its current task. This was one of the hooks that had been silently failing due to the TypeScript import issue -- once compiled to JavaScript and redeployed, it worked immediately.
 
 The index is regenerated every 6 hours by a shell script that categorizes memory files, counts observation markers, and computes token estimates:
 
@@ -154,15 +154,15 @@ Each layer is independent. The session rotation monitor doesn't know about the c
 
 ## Security Hardening
 
-Infrastructure that handles credentials and conversation transcripts needs to be hardened, especially when published as open source. We applied several measures during development that are worth calling out.
+Infrastructure that handles credentials and conversation transcripts needs to be hardened, especially when published as open source. I applied several measures during development that are worth calling out.
 
-**Credential loading.** The health monitoring script needs API tokens (gateway auth, Slack bot token) from a `.env` file. The common pattern -- `source .env` -- executes arbitrary shell commands embedded in the file. Instead, we parse it as plain key=value text with a `while IFS='=' read` loop. Before reading, we verify the `.env` file is owned by the current user and is not world-readable.
+**Credential loading.** The health monitoring script needs API tokens (gateway auth, Slack bot token) from a `.env` file. The common pattern -- `source .env` -- executes arbitrary shell commands embedded in the file. Instead, I parse it as plain key=value text with a `while IFS='=' read` loop. Before reading, I verify the `.env` file is owned by the current user and is not world-readable.
 
-**Token exposure.** Passing tokens via `curl -H "Authorization: Bearer $TOKEN"` exposes them in the process table (`ps aux`). We write tokens to temporary files with `chmod 600` and pass them via `curl -K`, then clean up via an `EXIT` trap.
+**Token exposure.** Passing tokens via `curl -H "Authorization: Bearer $TOKEN"` exposes them in the process table (`ps aux`). I write tokens to temporary files with `chmod 600` and pass them via `curl -K`, then clean up via an `EXIT` trap.
 
 **Safe JSON construction.** Slack API alert payloads are built using `python3 json.dumps` for correct escaping of special characters, backslashes, and quotes. A sed-based fallback handles environments without Python. The payload is written to a temp file and passed via `curl -d @file` rather than interpolated into the command line.
 
-**Command injection.** Several scripts use inline Python to parse `clawdbot.json`. The original pattern interpolated the file path into Python source code: `json.load(open('$CONFIG'))`. A crafted path could inject arbitrary Python. We switched to `sys.argv[1]` with the path passed as a command-line argument.
+**Command injection.** Several scripts use inline Python to parse `clawdbot.json`. The original pattern interpolated the file path into Python source code: `json.load(open('$CONFIG'))`. A crafted path could inject arbitrary Python. I switched to `sys.argv[1]` with the path passed as a command-line argument.
 
 **File permissions.** All scripts install as `700`, hooks as `600`, output files (checkpoints, summaries, backups) as `600`. Directories are created with `700`. The `.gitignore` prevents accidental commits of `.env`, config files, session transcripts, and memory content.
 
@@ -170,15 +170,15 @@ Infrastructure that handles credentials and conversation transcripts needs to be
 
 ## Results
 
-Since deploying this system, we have had zero lobotomy events across all six agents. The specific improvements:
+Since deploying this system, I have had zero lobotomy events across all six agents. The specific improvements:
 
-**Session rotation** catches agents at 150-170K tokens, cleanly rotating them before they hit the compaction wall. We see 2-4 rotations per day across the fleet, each one a controlled transition rather than an emergency recovery.
+**Session rotation** catches agents at 150-170K tokens, cleanly rotating them before they hit the compaction wall. I see 2-4 rotations per day across the fleet, each one a controlled transition rather than an emergency recovery.
 
-**Memory checkpoints** persist agent state every 20 minutes regardless of what the LLM is doing. The `ACTIVE_CONTEXT.md` files average 3-5KB each -- enough to reconstruct what the agent was working on, what files it was touching, and what the user last asked for.
+**Memory checkpoints** persist agent state every 20 minutes regardless of what the LLM is doing. The `ACTIVE_CONTEXT.md` files average 3-5KB each -- enough to reconstruct what the agent was working on, what files it was touching, and what I last asked for.
 
 **Compaction summaries** are now verified: 5-7KB of structured context, taking 5-15 seconds to generate. The timing alone confirms the LLM is actually being called.
 
-**Progressive memory loading** reduced bootstrap context from ~214K tokens to ~2K tokens for our heaviest agent. Agents load relevant memory on demand, which means they start faster and waste less of their context window on irrelevant history.
+**Progressive memory loading** reduced bootstrap context from ~214K tokens to ~2K tokens for my heaviest agent. Agents load relevant memory on demand, which means they start faster and waste less of their context window on irrelevant history.
 
 The agents now maintain multi-day context across session boundaries. An agent can pick up a task it was working on yesterday, reference a decision made three days ago, and avoid repeating research from last week. The total implementation is approximately 1,500 lines of code with zero external dependencies beyond Node.js and Clawdbot itself.
 
